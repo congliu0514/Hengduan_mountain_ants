@@ -1,0 +1,673 @@
+---
+title: "R Notebook-Ants in Hengduan Mountains"
+author: "Cong Liu"
+output: html_notebook
+---
+####This R notebook includes all the analyses of Ants in Hengsuan Mountains project
+
+#####PART1: Taxonomic and phylogenetic analyses of all sampling sites, including taxonomic beta diversity, phylogenetic alpha and beta diversities.
+
+**Part1.1: Getting the phylogeny for our study**
+```{r}
+# Check if the taxa of community is in current phylogeny
+require(phylotools)
+tree<-read.tree("lognormal_l24.tre") # This is the global ant phylogeny (15k)
+my_list<-read.csv("species_list.csv",row.names=1) # The species list from our study
+label<-tree$tip.label
+setdiff(label,my_list)
+for (i in 1:128) {
+  if (my_list[i,2] %in% label){
+    next
+  }else {
+    print (my_list[i,2])
+  }
+}
+```
+Randomly replace the taxa which are not in the phylogeny. For example, we have three Acropyga species which are not in the current phylogeny, we need to replace them with three randomly Acropygra from the phylogeny. We need update our species list (not showing here).
+```{r}
+sample(grep("Acropyga",label,value = T),3) # Randomly sample three Acroyga species from the phylogeny.
+```
+
+Make a sub-phylogeny of our ant species
+```{r}
+require("geiger")
+my_list<-read.csv("species_list.csv",row.names=1)
+tree2<-treedata(tree,my_list)$phy
+write.tree(tree2,file="finaltree.tre")
+```
+**Part1.2: Calculation of phylogeny alpha diveristy**
+```{r}
+require(picante)
+phylogeny<-read.tree("finaltree.tre") # the phylogeny we generate during the first step.
+comm<-read.csv("comm_all_label.csv",row.names=1) # Community data (present-absent matrix) with species name updated
+## mean pairwide distance (MPD)== NRI
+nri<-ses.mpd(comm,cophenetic(phylogeny),null.model = "independentswap",abundance.weighted = F,runs=1000,iterations = 1000)
+write.csv(nri,file="nri.csv")
+## mean nearest taxon distance (MNTD)==NTI
+nti<-ses.mntd(comm,cophenetic(phylogeny),null.model = "independentswap",abundance.weighted = F,runs=1000,iterations = 1000)
+write.csv(nti,file="nti.csv")
+```
+**Part1.3: Calculation of taxnomic beta diversity**  
+Taxonomic beta diversity calculation was based on recent framework that partition beta diversity into turnover and nestedness.
+```{r}
+# cauculate taxonomic beta diversity (turnover and nestedness)
+library(betapart)
+beta_all<-function(x){
+  beta.pair(randomizeMatrix(x,null.model = "independentswap"),index.family = "sorensen")
+}
+obs<-beta.pair(comm,index.family = "sorensen")
+# Cauculate turnover (sim)
+null.sim<-replicate(1000,as.matrix(beta_all(comm)$beta.sim))
+null.sim.mean<-apply(null.sim,c(1,2),mean,na.rm=T)
+null.sim.sd<-apply(null.sim,c(1,2),sd,na.rm=T)
+ses.sim<-(as.matrix(obs$beta.sim)-null.sim.mean)/null.sim.sd
+write.csv(ses.sim,file="ses_sim.csv")
+  
+# Cauculate nestedness (nest)
+null.nest<-replicate(1000,as.matrix(beta_all(comm)$beta.sne))
+null.nest.mean<-apply(null.nest,c(1,2),mean,na.rm=T)
+null.nest.sd<-apply(null.nest,c(1,2),sd,na.rm=T)
+ses.nest<-(as.matrix(obs$beta.sne)-null.nest.mean)/null.nest.sd
+write.csv(ses.nest,file="ses_nest.csv")
+
+# Cauculate total (total)
+null.total<-replicate(1000,as.matrix(beta_all(comm)$beta.sor))
+null.total.mean<-apply(null.total,c(1,2),mean,na.rm=T)
+null.total.sd<-apply(null.total,c(1,2),sd,na.rm=T)
+ses.total<-(as.matrix(obs$beta.sor)-null.total.mean)/null.total.sd
+write.csv(ses.total,file="ses_total.csv")
+
+# Calculate proportion of turnover components
+sim.porportion<-(obs$beta.sim)/(obs$beta.sor)
+sim.porportion<-as.matrix(sim.porportion)
+sim.porportion[!lower.tri(sim.porportion)]<-NA
+dim(sim.porportion)<-c(dim(sim.porportion)[1]*dim(sim.porportion)[2], 1)
+sim.porportion<-sim.porportion[complete.cases(sim.porportion),]
+sim.porportion<-as.data.frame(sim.porportion)
+write.csv(sim.porportion,file="sim.porportion.csv")
+```
+**Part1.4: Calculation of phylogenetic beta diversities**
+```{r}
+#partitioning phylogenetic beta into turnover and nestedness
+require(betapart)
+phy_beta_all<-function(x){
+  phylo.beta.pair(randomizeMatrix(x,null.model = "independentswap"),phylogeny,index.family = "sorensen")
+}
+obs_phylo_beta<-phylo.beta.pair(comm,phylogeny,index.family = "sorensen")
+## cauculate turnover (sim)
+phylo_null.sim<-replicate(1000,as.matrix(phy_beta_all(comm)$phylo.beta.sim))
+phylo_null.sim.mean<-apply(phylo_null.sim,c(1,2),mean,na.rm=T)
+phylo_null.sim.sd<-apply(phylo_null.sim,c(1,2),sd,na.rm=T)
+ses_phylo.sim<-(as.matrix(obs_phylo_beta$phylo.beta.sim)-phylo_null.sim.mean)/phylo_null.sim.sd
+write.csv(ses_phylo.sim,file="ses_phylo_sim.csv")
+
+## cauculate nestedness (nest)
+phylo_null.nest<-replicate(1000,as.matrix(phy_beta_all(comm)$phylo.beta.sne))
+phylo_null.nest.mean<-apply(phylo_null.nest,c(1,2),mean,na.rm=T)
+phylo_null.nest.sd<-apply(phylo_null.nest,c(1,2),sd,na.rm=T)
+ses_phylo.nest<-(as.matrix(obs_phylo_beta$phylo.beta.sne)-phylo_null.nest.mean)/phylo_null.nest.sd
+write.csv(ses_phylo.nest,file="ses_phylo_nest.csv")
+
+## cauculate total (total)
+phylo_null.total<-replicate(1000,as.matrix(phy_beta_all(comm)$phylo.beta.sor))
+phylo_null.total.mean<-apply(phylo_null.total,c(1,2),mean,na.rm=T)
+phylo_null.total.sd<-apply(phylo_null.total,c(1,2),sd,na.rm=T)
+ses_phylo.total<-(as.matrix(obs_phylo_beta$phylo.beta.sor)-phylo_null.total.mean)/phylo_null.total.sd
+write.csv(ses_phylo.total,file="ses_phylo_total.csv")
+
+# calculate proportion of phylogenetic turnover components
+sim.porportion<-(obs_phylo_beta$phylo.beta.sim)/(obs_phylo_beta$phylo.beta.sor)
+sim.porportion<-as.matrix(sim.porportion)
+sim.porportion[!lower.tri(sim.porportion)]<-NA
+dim(sim.porportion)<-c(dim(sim.porportion)[1]*dim(sim.porportion)[2], 1)
+sim.porportion<-sim.porportion[complete.cases(sim.porportion),] ###
+sim.porportion<-as.data.frame(sim.porportion)
+write.csv(sim.porportion,file="sim.porportion_phylo.csv")
+```
+
+
+#####PART2: Processing climatic data. 
+**Part2.1: Climatic variables selection**  
+Calculate the correlation between climate data and alpha diversities and remove weak explianatory variables (p<0.1)
+```{r}
+env<-read.csv("environmental_data.csv",row.names=1)
+alpha<-read.csv("alpha.csv",row.names=1)
+cor_climate<-matrix(nrow = 19,ncol = 2)
+row.names(cor_climate)<-colnames(env)
+colnames(cor_climate)<-c("SR","NRI")
+for (i in 1:19){
+  cor_climate[i,1]<-round(cor.test(env[,i],alpha[,2])$estimate,digits = 4)
+  cor_climate[i,2]<-round(cor.test(env[,i],alpha[,3])$estimate,digits = 4)
+}
+write.csv(cor_climate,file="cor.climate.csv")
+```
+
+Calculate the correlation between climate variables. If r>0.7, then remove the variables that with poorer explianatoty
+```{r}
+cor_climate2<-cor(env,method = "spearman")
+write.csv(cor_climate2,file="cor_climate2.csv") # only bio1, bio2, bio3 for temperature and bio12, bio15 for precipitation left
+```
+
+**Part2.2: PCA of selected climatic variables**  
+Running PCA for both temperature and precipitation variavles and select only PC1s for presenting tem and precip variables.
+
+```{r}
+climate<-read.csv("climate_reduced.csv",row.names=1)
+climate_pca<-matrix(nrow=55,ncol = 2)
+row.names(climate_pca)<-rownames(climate)
+colnames(climate_pca)<-c("tem","prec")
+tem<-climate[,c(1,2,3)]
+prec<-climate[,c(4,5)]
+tem_pca<-princomp(tem)
+prec_pca<-princomp(prec)
+summary(tem_pca)
+summary(prec_pca)
+climate_pca[,1]<-tem_pca$scores[,1]
+climate_pca[,2]<-prec_pca$scores[,1]
+write.csv(climate_pca,file="climate_pca.csv")
+```
+
+**Part2.3: Making distance matrix for climatic data (PC1s of both tem and precip)**  
+```{r}
+# make a distance matrix of climate pca data (Euclidean)
+climate_dis<-dist(scale(climate_pca,center = T,scale = T))
+write.csv(as.matrix(climate_dis),file="climate_dis.csv")
+
+# cover matrix into one column
+matrix1<-as.matrix(climate_dis)
+matrix1[!lower.tri(matrix1)]<-NA
+dim(matrix1)<-c(dim(matrix1)[1]*dim(matrix1)[2], 1)
+matrix1<-matrix1[complete.cases(matrix1),] ###
+matrix1<-as.data.frame(matrix1)
+write.csv(matrix1,file="climate_dis.csv")
+```
+
+#####PART3: Statistics, GAM and more
+
+**Part3.1: For alpha diversity**  
+```{r}
+require(mgcv)
+alpha<-read.csv("alpha.csv")
+
+# Species richness
+gam1<-gam(alpha$ntaxa~tem+prec+s(Lat,Lon),family = "poisson",data=alpha)
+gam2<-gam(alpha$ntaxa~s(alpha$tem),family = "poisson",data=alpha)
+gam3<-gam(alpha$ntaxa~s(alpha$prec),family = "poisson",data=alpha)
+gam4<-gam(alpha$ntaxa~s(alpha$elevation)+s(Lat,Lon),family = "poisson",data=alpha)
+gam5<-gam(alpha$ntaxa~s(alpha$tem)+s(alpha$prec)+s(alpha$elevation),family = "poisson",data=alpha)
+gam6<-gam(alpha$ntaxa~s(alpha$tem)+s(alpha$elevation),family = "poisson",data=alpha)
+gam7<-gam(alpha$ntaxa~s(alpha$prec)+s(alpha$elevation),family = "poisson",data=alpha)
+summary(gam1)
+summary(gam2)
+summary(gam3)
+summary(gam4)
+summary(gam5)
+summary(gam6)
+summary(gam7)
+
+#NRI
+gam8<-gam(alpha$nri~s(alpha$tem),data=alpha)
+gam9<-gam(alpha$nri~s(alpha$prec),data=alpha)
+gam10<-gam(alpha$nri~s(alpha$elevation)+s(Lat,Lon),data=alpha)
+gam11<-gam(alpha$nri~s(alpha$elevation)+s(alpha$tem),data=alpha)
+gam12<-gam(alpha$nri~s(alpha$elevation)+s(alpha$prec),data=alpha)
+gam13<-gam(alpha$nri~s(alpha$tem)+s(alpha$prec),data=alpha)
+gam14<-gam(alpha$nri~s(alpha$tem)+s(alpha$prec)+s(alpha$elevation),data=alpha)
+summary(gam8)
+summary(gam9)
+summary(gam10)
+summary(gam11)
+summary(gam12)
+summary(gam13)
+summary(gam14)
+```
+**Part3.1: For beta diversity** 
+```{r}
+beta<-read.csv("beta.csv")
+
+# Taxonomic beta diversity
+gam15<-gam(TBD_total.ses~s(distance),data=beta)
+gam15_1<-gam(TBD_total.ses~s(cost_bin3),data=beta)
+gam16<-gam(TBD_total.ses~s(climate_distance),data=beta)
+gam17<-gam(TBD_total.ses~s(climate_distance)+s(distance),data=beta)
+gam17_1<-gam(TBD_total.ses~s(climate_distance)+s(cost_bin3),data=beta)
+
+gam18<-gam(TBD_turn.ses~s(distance),data=beta)
+gam19<-gam(TBD_turn.ses~s(climate_distance),data=beta)
+gam20<-gam(TBD_turn.ses~s(climate_distance)+s(distance),data=beta)
+
+gam21<-gam(TBD_nest.ses~s(distance),data=beta)
+gam22<-gam(TBD_nest.ses~s(climate_distance),data=beta)
+gam23<-gam(TBD_nest.ses~s(climate_distance)+s(distance),data=beta)
+
+summary(gam15)
+summary(gam15_1)
+summary(gam16)
+summary(gam17)
+summary(gam17_1)
+summary(gam18)
+summary(gam19)
+summary(gam20)
+summary(gam21)
+summary(gam22)
+summary(gam23)
+
+# Phylogenetic beta diversity
+gam24<-gam(PBD_total.ses~s(distance),data=beta)
+gam25<-gam(PBD_total.ses~s(climate_distance),data=beta)
+gam26<-gam(PBD_total.ses~s(climate_distance)+s(distance),data=beta)
+
+gam27<-gam(PBD_turn.ses~s(distance),data=beta)
+gam28<-gam(PBD_turn.ses~s(climate_distance),data=beta)
+gam29<-gam(PBD_turn.ses~s(climate_distance)+s(distance),data=beta)
+
+gam30<-gam(PBD_nest.ses~s(distance),data=beta)
+gam31<-gam(PBD_nest.ses~s(climate_distance),data=beta)
+gam32<-gam(PBD_nest.ses~s(climate_distance)+s(distance),data=beta)
+
+summary(gam24)
+summary(gam25)
+summary(gam26)
+summary(gam27)
+summary(gam28)
+summary(gam29)
+summary(gam30)
+summary(gam31)
+summary(gam32)
+```
+
+
+#####PART4: Elevational connectivity
+**Here are analyses related to elevational connectivity**  
+**Part4.1: For 3000 randomly generated site (simulation), Calculate ele_dis, ele_ave, geo distance, and cost distance for all the pairs within 400m buffer**  
+```{r}
+# Make matrix of elevation distance,average elevation, and input cost distance between pairs of all sites
+elevation1<-read.csv("site_elevation_random.csv",header = F,row.names = 1)
+elevation_dist<-t(outer(elevation1[,1],elevation1[,1],'-'))
+row.names(elevation_dist)<-row.names(elevation1)
+colnames(elevation_dist)<-row.names(elevation1)
+elevation_dist[!lower.tri(elevation_dist)]<-NA
+
+elevation_ave<-(t(outer(elevation1[,1],elevation1[,1],'+')))/2
+row.names(elevation_ave)<-row.names(elevation1)
+colnames(elevation_ave)<-row.names(elevation1)
+elevation_ave[!lower.tri(elevation_ave)]<-NA
+
+cost<-as.matrix(read.csv("CostDistResult_random.csv",row.names = 1))
+cost[!lower.tri(cost)]<-NA
+
+#convert matrice into one column
+dim(elevation_dist)<-c(dim(elevation_dist)[1]*dim(elevation_dist)[2], 1)
+elevation_dist<-elevation_dist[complete.cases(elevation_dist),]
+
+dim(elevation_ave)<-c(dim(elevation_ave)[1]*dim(elevation_ave)[2], 1)
+elevation_ave<-elevation_ave[complete.cases(elevation_ave),]
+
+dim(cost)<-c(dim(cost)[1]*dim(cost)[2], 1)
+cost<-cost[complete.cases(cost),]
+
+# Output all ele_dis, ele_ave, and cost distance of selected pairs (ele_dis<400m, 400m buffer)
+result<-matrix(nrow=4498500,ncol=5)
+colnames(result)<-c("ele_dis","ele_ave","cost_dis","tbd","pbd")
+a=1
+for (i in 1:4498500){
+  if (abs(elevation_dist[i])<=400){
+    result[a,1]=elevation_dist[i]
+    result[a,2]=elevation_ave[i]
+    result[a,3]=cost[i]
+    a=a+1
+  }
+}
+write.csv(result,file="summary_random.csv")
+```
+
+**Part4.2: For our real sampling site, Calculate ele_dis, ele_ave, geo distance, and cost distance for all the pairs within 400m buffer**
+```{r}
+# Make matrix of elevation distance,average elevation, and input cost distance between pairs of all sites
+elevation1<-read.csv("site_elevation.csv",header = F,row.names = 1)
+elevation_dist<-t(outer(elevation1[,1],elevation1[,1],'-'))
+row.names(elevation_dist)<-row.names(elevation1)
+colnames(elevation_dist)<-row.names(elevation1)
+elevation_dist[!lower.tri(elevation_dist)]<-NA
+
+elevation_ave<-(t(outer(elevation1[,1],elevation1[,1],'+')))/2
+row.names(elevation_ave)<-row.names(elevation1)
+colnames(elevation_ave)<-row.names(elevation1)
+elevation_ave[!lower.tri(elevation_ave)]<-NA
+
+cost<-as.matrix(read.csv("CostDistResult_bin500.csv",row.names = 1))
+cost[!lower.tri(cost)]<-NA
+geo_dis<-as.matrix(read.csv("ditance.csv",row.names = 1))
+geo_dis[!lower.tri(geo_dis)]<-NA
+#convert matrice into one column
+dim(elevation_dist)<-c(dim(elevation_dist)[1]*dim(elevation_dist)[2], 1)
+elevation_dist<-elevation_dist[complete.cases(elevation_dist),]
+
+dim(elevation_ave)<-c(dim(elevation_ave)[1]*dim(elevation_ave)[2], 1)
+elevation_ave<-elevation_ave[complete.cases(elevation_ave),]
+
+dim(cost)<-c(dim(cost)[1]*dim(cost)[2], 1)
+cost<-cost[complete.cases(cost),]
+
+dim(geo_dis)<-c(dim(geo_dis)[1]*dim(geo_dis)[2], 1)
+geo_dis<-geo_dis[complete.cases(geo_dis),]
+# Output all ele_dis, ele_ave, and cost distance of selected pairs (ele_dis<400m)
+result<-matrix(nrow=1485,ncol=6)
+colnames(result)<-c("ele_dis","ele_ave","cost_dis","geo_dis","tbd","pbd")
+a=1
+for (i in 1:1485){
+  if (abs(elevation_dist[i])<=400){
+    result[a,1]=elevation_dist[i]
+    result[a,2]=elevation_ave[i]
+    result[a,3]=cost[i]
+    result[a,4]=geo_dis[i]
+    a=a+1
+  }
+}
+write.csv(result,file="summary_500.csv")
+```
+
+**Part4.3: For our real sampling site, Calculating TBD and PBD for all the pairs within 400m buffer.**  
+
+* Part4.3.1: Access the elevational range of each species (for define species pool within each elevational buffer).
+```{r}
+comm<-as.matrix(read.csv("comm_all_label.csv",row.names=1))
+elevation<-read.csv("site_elevation.csv",header=F,row.names = 1)
+result<-matrix(ncol = 127, nrow = 55)
+colnames(result)<-colnames(comm)
+for (i in 1:127){
+  a=1
+  for (j in 1:55){
+    if (comm[j,i]==1){
+      result[a,i]=elevation[row.names(elevation)==row.names(comm)[j],1]
+      a=a+1
+    }
+  }
+}
+
+min_ele<-c()
+max_ele<-c()
+for (i in 1:127){
+  min_ele<-append(min_ele,min(result[,i],na.rm = T))
+  max_ele<-append(max_ele,max(result[,i],na.rm = T))
+}
+id<-colnames(comm)
+elevation_range<-data.frame(id,min_ele,max_ele)
+
+# Redefine species elevational range. for those species only been collected in one site, we define their elevational range as +-200m, +-150m, +-250m
+for (i in 1:127){
+  if(elevation_range$min_ele[i]==elevation_range$max_ele[i]){
+    elevation_range$min_ele[i]=elevation_range$min_ele[i]-200
+    elevation_range$max_ele[i]=elevation_range$max_ele[i]+200
+  }
+}
+write.csv(elevation_range,file="elevational_range_400.csv")
+```
+* Part4.3.2: Get sites names that in our analyse ncol=249 for 300m band, ncol=332 for 400m band, ncol= 407 for 500m band.
+```{r}
+elevation1<-read.csv("site_elevation.csv",header = F,row.names = 1)
+elevation_dist<-t(outer(elevation1[,1],elevation1[,1],'-'))
+row.names(elevation_dist)<-row.names(elevation1)
+colnames(elevation_dist)<-row.names(elevation1)
+elevation_dist[!lower.tri(elevation_dist)]<-NA
+
+elevation_ave<-(t(outer(elevation1[,1],elevation1[,1],'+')))/2
+row.names(elevation_ave)<-row.names(elevation1)
+colnames(elevation_ave)<-row.names(elevation1)
+elevation_ave[!lower.tri(elevation_ave)]<-NA
+site<-matrix(ncol = 332,nrow = 2) #ncol= the number of pairs for the defined elevational band
+a=1
+for (i in 1:55){
+  for (j in 1:55){
+    if (is.na(elevation_dist[j,i])) next
+    if (abs(elevation_dist[j,i])<=400){
+      site[1,a]=colnames(elevation_dist)[i]
+      site[2,a]=row.names(elevation_dist)[j]
+      a=a+1
+    }
+  }
+}
+#get the average elevation of each pair for getting species pool
+results2<-read.csv("summary_400.csv")
+elevation_range<-read.csv("elevational_range_400.csv",stringsAsFactors = F)
+```
+
+* Part4.3.3 Calculate TBD among all sites that within 400m elevational buffer.
+```{r}
+require(picante)
+require(betapart)
+beta_all<-function(x){
+  beta.pair(randomizeMatrix(x,null.model = "richness"),index.family = "sorensen")
+}
+result3<-matrix(nrow=1,ncol=332) #ncol= the number of pairs for the defined elevational band
+for (i in 1:332){
+  comm<-read.csv("comm_all_label.csv",row.names=1)
+  comm<-comm[row.names(comm)%in% site[,i],]
+  sp<-c()
+  for (x in 1:127){ #the number here is the number of species
+    if (results2$ele_ave[i]>=elevation_range$min_ele[x]&results2$ele_ave[i]<=elevation_range$max_ele[x]){
+      sp<-append(sp,elevation_range$id[x])
+    }
+  }
+  comm<-comm[,colnames(comm)%in% sp]
+  obs<-beta.pair(comm,index.family = "sorensen")
+  null.turn<-replicate(1000,as.matrix(beta_all(comm)$beta.sim))
+  null.turn.mean<-apply(null.turn,c(1,2),mean,na.rm=T)
+  null.turn.sd<-apply(null.turn,c(1,2),sd,na.rm=T)
+  ses.turn<-(as.matrix(obs$beta.sim)-null.turn.mean)/null.turn.sd
+  ses.turn[!lower.tri(ses.turn)]<-NA
+  dim(ses.turn)<-c(dim(ses.turn)[1]*dim(ses.turn)[2], 1)
+  ses.turn<-ses.turn[complete.cases(ses.turn),]
+  result3[1,i]=ses.turn
+  print (paste0(i/332*100,"%"))
+  }
+write.csv(result3,file="tbd_400.csv")
+```
+
+* Part4.3.4 Calculate PBD among all sites that within 400m elevational buffer.
+```{r}
+library(phylotools)
+library(geiger)
+phy_beta<-function(x,y){
+  phylo.beta.pair(randomizeMatrix(x,null.model = "richness"),y,index.family = "sorensen")
+}
+phylogeny<-read.tree("/Users/Liu/Dropbox (OIST)/projects/xizang ant/R_new/finaltree.tre")
+result3<-matrix(nrow=1,ncol=332)
+for (i in 1:332){
+  comm<-read.csv("comm_all_label.csv",row.names=1)
+  comm<-comm[row.names(comm)%in% site[,i],]
+  sp<-c()
+  for (x in 1:127){
+    if (results2$ele_ave[i]>=elevation_range$min_ele[x]&results2$ele_ave[i]<=elevation_range$max_ele[x]){
+      sp<-append(sp,elevation_range$id[x])
+    }
+  }
+  comm<-comm[,colnames(comm)%in% sp]
+  obs_phylo<-phylo.beta.pair(comm,treedata(phylogeny,t(comm))$phy,index.family = "sorensen")
+  phylo_null<-replicate(1000,as.matrix(phy_beta(comm,treedata(phylogeny,t(comm))$phy)$phylo.beta.sor))
+  phylo_null.mean<-apply(phylo_null,c(1,2),mean,na.rm=T)
+  phylo_null.sd<-apply(phylo_null,c(1,2),sd,na.rm=T)
+  ses_phylo<-(as.matrix(obs_phylo$phylo.beta.sor)-phylo_null.mean)/phylo_null.sd
+  
+  ses_phylo[!lower.tri(ses_phylo)]<-NA
+  dim(ses_phylo)<-c(dim(ses_phylo)[1]*dim(ses_phylo)[2], 1)
+  ses_phylo<-ses_phylo[complete.cases(ses_phylo),]
+  result3[1,i]=ses_phylo
+  print (paste0(i/332*100,"%"))
+  
+}
+write.csv(result3,file="pbd_400.csv")
+```
+
+#####PART5: Plotting
+**Part5.1: Alpha diversity**
+```{r}
+require(ggplot2)
+require(plotly)
+require(gridExtra)
+alpha<-read.csv("alpha.csv",row.names=1)
+mytheme<-theme(axis.title=element_text(size=15, lineheight=.9, family="Helvetica",face="bold", colour="black"))+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))
+
+nri<-ggplot(alpha,aes(x=alpha$elevation,y=alpha$nri,size=alpha$ntaxa,colour=as.factor(alpha$colour)))+geom_point(alpha=.8)+ylim(-3,3)+scale_size_area()+
+mytheme+xlab("Elevation (m)")+ylab("-1XNRI")+geom_hline(yintercept=0,linetype="dashed",size=0.5)+theme(legend.position="none")+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))+scale_color_manual(values = c("red","black","blue"))
+
+sr_elev<-ggplot(aes(x=alpha$elevation, y=alpha$ntaxa), data=alpha) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Elevation (m)")+ylab("Species Richness")+mytheme 
+# Output figure
+tiff(filename = "figure1.tiff",width = 3000,height = 1350,units = "px",compression = "lzw",res = 300)
+grid.arrange(sr_elev,nri,nrow=1)
+dev.off()
+sr_elev
+nri
+```
+**Part5.2: Beta diversity**
+```{r}
+beta<-read.csv("beta.csv")
+
+TBD_total<-ggplot(beta,aes(x=scale(beta$climate_distance,scale = T,center = F),y=beta$TBD_total.ses,colour=beta$distance))+geom_point()+xlab("Euclidean climate distance")+ylab("Taxonomic beta(total)")+geom_hline(yintercept=1.96,linetype="dashed",size=0.5)+geom_hline(yintercept=-1.96,linetype="dashed",size=0.5)+scale_size_area()+mytheme+theme(legend.position="none")+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))+ylim(-7.5,7.5)
+
+TBD_turn<-ggplot(beta,aes(x=scale(beta$climate_distance,scale = T,center = F),y=beta$TBD_turn.ses,colour=beta$distance))+geom_point()+xlab("Euclidean climate distance")+ylab("Taxonomic beta(turnover)")+geom_hline(yintercept=1.96,linetype="dashed",size=0.5)+geom_hline(yintercept=-1.96,linetype="dashed",size=0.5)+scale_size_area()+mytheme+theme(legend.position="none")+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))+ylim(-7.5,7.5)
+
+TBD_sne<-ggplot(beta,aes(x=scale(beta$climate_distance,scale = T,center = F),y=beta$TBD_nest.ses,colour=beta$distance))+geom_point()+xlab("Euclidean climate distance")+ylab("Taxonomic beta(nestedness)")+geom_hline(yintercept=1.96,linetype="dashed",size=0.5)+geom_hline(yintercept=-1.96,linetype="dashed",size=0.5)+scale_size_area()+mytheme+theme(legend.position=c(0.9,0.8))+labs(colour="Distance(km)")+theme(legend.title=element_text(size=10,lineheight=.9,family="Helvetica",face="bold", colour="black"))+theme(legend.background=element_blank())+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))+ylim(-7.5,7.5)
+
+PBD_total<-ggplot(beta,aes(x=scale(beta$climate_distance,scale = T,center = F),y=beta$PBD_total.ses,colour=beta$distance))+geom_point()+xlab("Euclidean climate distance")+ylab("Phylogenetic beta(total)")+geom_hline(yintercept=1.96,linetype="dashed",size=0.5)+geom_hline(yintercept=-1.96,linetype="dashed",size=0.5)+scale_size_area()+mytheme+theme(legend.position="none")+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))+ylim(-7.5,7.5)
+
+PBD_turn<-ggplot(beta,aes(x=scale(beta$climate_distance,scale = T,center = F),y=beta$PBD_turn.ses,colour=beta$distance))+geom_point()+xlab("Euclidean climate distance")+ylab("Phylogenetic beta(turnover)")+geom_hline(yintercept=1.96,linetype="dashed",size=0.5)+geom_hline(yintercept=-1.96,linetype="dashed",size=0.5)+scale_size_area()+mytheme+theme(legend.position="none")+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))+ylim(-7.5,7.5)
+
+PBD_sne<-ggplot(beta,aes(x=scale(beta$climate_distance,scale = T,center = F),y=beta$PBD_nest.ses,colour=beta$distance))+geom_point()+xlab("Euclidean climate distance")+ylab("Phylogenetic beta(nestedness)")+geom_hline(yintercept=1.96,linetype="dashed",size=0.5)+geom_hline(yintercept=-1.96,linetype="dashed",size=0.5)+scale_size_area()+mytheme+theme(legend.position=c(0.9,0.8))+labs(colour="Distance(km)")+theme(legend.title=element_text(size=10,lineheight=.9,family="Helvetica",face="bold", colour="black"))+theme(legend.background=element_blank())+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))+ylim(-7.5,7.5)
+
+tiff(filename = "figure2.tiff",width = 4500,height = 2700,units = "px",compression = "lzw",res = 300)
+grid.arrange(TBD_total,TBD_turn,TBD_sne,PBD_total,PBD_turn,PBD_sne,nrow=2)
+dev.off()
+```
+
+**Part5.3: plotting "proportion of total explained deviance for both beta diversities"**  
+```{r}
+r2<-read.csv("R2_partition.csv")
+r2$type<-factor(r2$type,levels=c("Taxonomic beta","Phylogenetic beta"))
+p1<-ggplot(r2,aes(x=beta,y=proportion2,fill=cat))+geom_bar(width=.7,stat = "identity",colour="black")+scale_fill_manual(values = c("black","white","grey70"))+facet_grid(.~type,scales = "free_x")
+p1<-p1+mythem+ylab("Proportion of total explained deviance")+xlab("")+theme(strip.text = element_text(face="bold",family = "Helvetica", size=12))
+p1<-p1+scale_x_discrete(breaks=c("A1","A2","A3","B1","B2","B3"),labels=c("SES_Total","SES_Turnover","SES_Nestedness","SES_Total","SES_Turnover","SES_Nestedness"))+theme(axis.text.x = element_text(angle=30, hjust=1, vjust=1))
+p1<-p1+labs(fill="Explained by")+theme(legend.text=element_text(size=9,lineheight = .9,family = "Helvetica",face="bold",colour = "black"),legend.title=element_text(size=10, lineheight=.9, family="Helvetica",face="bold", colour="black"))
+p1<-p1+guides(fill = guide_legend(keywidth = 0.5, keyheight = 0.5,title="Explained by:"))+theme(legend.background=element_rect(fill="white", colour="black"))+theme(legend.position=c(.8,.2))
+tiff(filename = "figure6.tiff",width = 2000,height = 1700,units = "px",compression = "lzw",res = 300)
+p1
+dev.off()
+```
+
+**Part5.4: Plotting GAM**  
+
+* Alpha diversity.
+```{r}
+# The fit of generalized additivemodels (GAM) with 95% confidencebands examining the individualrelationship between alpha diversities and variables
+sr_tem<-ggplot(aes(x=alpha$tem, y=alpha$ntaxa), data=alpha) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Temperature (PC1)")+ylab("Species Richness")+mytheme 
+
+sr_prec<-ggplot(aes(x=alpha$prec, y=alpha$ntaxa), data=alpha) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Precipitation (PC1)")+ylab("Species Richness")+mytheme 
+
+sr_elev<-ggplot(aes(x=alpha$elevation, y=alpha$ntaxa), data=alpha) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Elevation (m)")+ylab("Species Richness")+mytheme 
+
+nri_tem<-ggplot(aes(x=alpha$tem, y=alpha$nri), data=alpha) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Temperature (PC1)")+ylab("-1XNRI")+mytheme 
+
+nri_prec<-ggplot(aes(x=alpha$prec, y=alpha$nri), data=alpha) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Precipitation (PC1)")+ylab("1XNRI")+mytheme 
+
+nri_elev<-ggplot(aes(x=alpha$elevation, y=alpha$nri), data=alpha) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Elevation (m)")+ylab("1XNRI")+mytheme 
+tiff(filename = "figure3.tiff",width = 4500,height = 2700,units = "px",compression = "lzw",res = 300)
+grid.arrange(sr_tem,sr_prec,sr_elev,nri_tem,nri_prec,nri_elev,nrow=2)
+dev.off()
+```
+
+* Beta diversity.
+```{r}
+# The fit of generalized additivemodels (GAM) with 95% confidencebands examining the individualrelationship between beta diversities and variables
+climate_TBD_total<-ggplot(aes(x=scale(beta$climate_distance,scale = T,center = F), y=beta$TBD_total.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Euclidean climate distance")+ylab("TBD (SES_SOR)")+ylim(-7.5,7.5)+mytheme 
+
+climate_TBD_turn<-ggplot(aes(x=scale(beta$climate_distance,scale = T,center = F), y=beta$TBD_turn.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Euclidean climate distance")+ylab("TBD (SES_SIM)")+ylim(-7.5,7.5)+mytheme 
+
+climate_TBD_nest<-ggplot(aes(x=scale(beta$climate_distance,scale = T,center = F), y=beta$TBD_nest.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Euclidean climate distance")+ylab("TBD (SES_SNE)")+ylim(-7.5,7.5)+mytheme 
+
+distance_TBD_total<-ggplot(aes(x=beta$distance, y=beta$TBD_total.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Geographic distance (km)")+ylab("TBD (SES_SOR)")+ylim(-7.5,7.5)+mytheme 
+
+distance_TBD_turn<-ggplot(aes(x=beta$distance, y=beta$TBD_turn.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Geographic distance (km)")+ylab("TBD (SES_SIM)")+ylim(-7.5,7.5)+mytheme 
+
+distance_TBD_nest<-ggplot(aes(x=beta$distance, y=beta$TBD_nest.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Geographic distance (km)")+ylab("TBD (SES_SNE)")+ylim(-7.5,7.5)+mytheme 
+
+climate_PBD_total<-ggplot(aes(x=scale(beta$climate_distance,scale = T,center = F), y=beta$PBD_total.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Euclidean climate distance")+ylab("PBD (SES_SOR)")+ylim(-7.5,7.5)+mytheme 
+
+climate_PBD_turn<-ggplot(aes(x=scale(beta$climate_distance,scale = T,center = F), y=beta$PBD_turn.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Euclidean climate distance")+ylab("PBD (SES_SIM)")+ylim(-7.5,7.5)+mytheme 
+
+climate_PBD_nest<-ggplot(aes(x=scale(beta$climate_distance,scale = T,center = F), y=beta$PBD_nest.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Euclidean climate distance")+ylab("PBD (SES_SNE)")+ylim(-7.5,7.5)+mytheme 
+
+distance_PBD_total<-ggplot(aes(x=beta$distance, y=beta$PBD_total.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Geographic distance (km)")+ylab("PBD (SES_SOR)")+ylim(-7.5,7.5)+mytheme 
+
+distance_PBD_turn<-ggplot(aes(x=beta$distance, y=beta$PBD_turn.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Geographic distance (km)")+ylab("PBD (SES_SIM)")+ylim(-7.5,7.5)+mytheme 
+
+distance_PBD_nest<-ggplot(aes(x=beta$distance, y=beta$PBD_nest.ses), data=beta) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr"))+xlab("Geographic distance (km)")+ylab("PBD (SES_SNE)")+ylim(-7.5,7.5)+mytheme 
+
+tiff(filename = "figure4.tiff",width = 4500,height = 5400,units = "px",compression = "lzw",res = 300)
+grid.arrange(climate_TBD_total,climate_TBD_turn,climate_TBD_nest,distance_TBD_total,distance_TBD_turn,distance_TBD_nest,climate_PBD_total,climate_PBD_turn,climate_PBD_nest,distance_PBD_total,distance_PBD_turn,distance_PBD_nest,nrow=4)
+dev.off()
+
+#plot vis.gam plot for beta diversities
+gam_1<-gam(TBD_total.ses~te(climate_distance1,distance,k=3),data=beta)
+tiff(filename = "figure5-1.tiff",width = 1500,height = 1500,units = "px",compression = "lzw",res = 300)
+vis.gam(gam_1,type='response', plot.type='persp', theta=-40,n.grid=1000, border=NA,xlab="",ylab="",zlab="",ticktype="detailed")
+dev.off()
+
+gam_2<-gam(TBD_turn.ses~te(climate_distance1,distance,k=3),data=beta)
+tiff(filename = "figure5-2.tiff",width = 1500,height = 1500,units = "px",compression = "lzw",res = 300)
+vis.gam(gam_2,type='response', plot.type='persp', theta=-40,n.grid=1000, border=NA,xlab="",ylab="",zlab="",ticktype="detailed")
+dev.off()
+
+gam_3<-gam(TBD_nest.ses~te(climate_distance1,distance,k=3),data=beta)
+tiff(filename = "figure5-3.tiff",width = 1500,height = 1500,units = "px",compression = "lzw",res = 300)
+vis.gam(gam_3,type='response', plot.type='persp', theta=-40,n.grid=1000, border=NA,xlab="",ylab="",zlab="",ticktype="detailed")
+dev.off()
+
+gam_4<-gam(PBD_total.ses~te(climate_distance1,distance,k=3),data=beta)
+tiff(filename = "figure5-4.tiff",width = 1500,height = 1500,units = "px",compression = "lzw",res = 300)
+vis.gam(gam_4,type='response', plot.type='persp', theta=-40,n.grid=1000, border=NA,xlab="",ylab="",zlab="",ticktype="detailed")
+dev.off()
+
+gam_5<-gam(PBD_turn.ses~te(climate_distance1,distance,k=3),data=beta)
+tiff(filename = "figure5-5.tiff",width = 1500,height = 1500,units = "px",compression = "lzw",res = 300)
+vis.gam(gam_5,type='response', plot.type='persp', theta=-40,n.grid=1000, border=NA,xlab="",ylab="",zlab="",ticktype="detailed")
+dev.off()
+
+gam_6<-gam(PBD_nest.ses~te(climate_distance1,distance,k=3),data=beta)
+tiff(filename = "figure5-6.tiff",width = 1500,height = 1500,units = "px",compression = "lzw",res = 300)
+vis.gam(gam_6,type='response', plot.type='persp', theta=-40,n.grid=1000, border=NA,xlab="",ylab="",zlab="",ticktype="detailed")
+dev.off()
+```
+
+**Part5.5: Plotting elevational connectivity**  
+
+* For real sampling data
+```{r}
+require(mgcv)
+require(ggplot2)
+require(gridExtra)
+mytheme<-theme(axis.title=element_text(size=15, lineheight=.9, family="Helvetica",face="bold", colour="black"))+theme(axis.text=element_text(size=12, lineheight=.9,family="Helvetica",face="bold", colour="black"))
+a<-read.csv("summary_300.csv")
+tbd<-ggplot(aes(x=ele_ave, y=tbd), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Average elevation (m)")+ylab("Taxonomic beta")+ylim(-4.5,4.5)
+pbd<-ggplot(aes(x=ele_ave, y=pbd), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Average elevation (m)")+ylab("phylogenetic beta")+ylim(-3,3)
+cost<-ggplot(aes(x=ele_ave, y=log(cost_dis)), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Average elevation (m)")+ylab("Cost distance(log)")
+geo<-ggplot(aes(x=ele_ave, y=geo_dis), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Average elevation (m)")+ylab("Geographic distance(km)")
+tiff(filename = "figure8_300-1.tiff",width = 2000,height = 1800,units = "px",compression = "lzw",res = 300)
+grid.arrange(cost,geo,tbd,pbd,nrow=2)
+dev.off()
+
+tbd_cost<-ggplot(aes(x=log(cost_dis), y=tbd), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Cost distance(log)")+ylab("Taxonomic beta")+ylim(-4.5,4.5)
+pbd_cost<-ggplot(aes(x=log(cost_dis), y=pbd), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Cost distance(log)")+ylab("Phylogenetic beta")+ylim(-3,3)
+tiff(filename = "figure7.tiff",width = 2000,height = 900,units = "px",compression = "lzw",res = 300)
+grid.arrange(tbd_cost,pbd_cost,nrow=1)
+dev.off()
+
+tbd_geo<-ggplot(aes(x=geo_dis, y=tbd), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Geographic distance (km)")+ylab("Taxonomic beta")+ylim(-4.5,4.5)
+pbd_geo<-ggplot(aes(x=geo_dis, y=pbd), data=a) +geom_point() +geom_smooth(se=T, method='gam', formula=y~s(x, bs="cr",k=3))+xlab("Geographic distance (km)")+ylab("Phylogenetic beta")+ylim(-3,3)
+tiff(filename = "figure7-2.tiff",width = 2000,height = 900,units = "px",compression = "lzw",res = 300)
+grid.arrange(tbd_geo,pbd_geo,nrow=1)
+dev.off()
+
+tiff(filename = "figure7-500.tiff",width = 2000,height = 1800,units = "px",compression = "lzw",res = 300)
+grid.arrange(tbd_cost,pbd_cost,tbd_geo,pbd_geo,nrow=2)
+dev.off()
+```
